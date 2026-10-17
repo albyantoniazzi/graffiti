@@ -1,0 +1,1419 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>graffiti</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Google+Sans+Code:ital,wght@0,400..700;1,400..700&family=Google+Sans+Mono:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  
+  <style>
+    * {
+      font-family: 'Google Sans Code', 'Google Sans Mono', 'JetBrains Mono', monospace, sans-serif;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+      -webkit-user-select: none;
+      box-sizing: border-box;
+    }
+
+    body, html {
+      margin: 0;
+      padding: 0;
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      touch-action: none;
+      background-color: #ffffff;
+    }
+
+    /* Permanent Solid Bottom Center Pill Toolbar */
+    .dock-container {
+      position: fixed;
+      bottom: 1.25rem;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 40;
+      opacity: 1 !important;
+      pointer-events: auto !important;
+      padding-top: 16px; /* headroom for raised active tool icons */
+    }
+
+    .dark-toolbar {
+      background: rgba(18, 18, 20, 0.82);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      box-shadow: 0 16px 40px -6px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(0, 0, 0, 0.25);
+      overflow: visible; /* Allows raised active tools to elevate outside the dock */
+    }
+
+    /* Base tool button transition and elevation styling */
+    .tool-btn {
+      transition: transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1), filter 0.22s ease, opacity 0.2s ease;
+      position: relative;
+    }
+    .tool-btn:active {
+      transform: scale(0.92);
+    }
+
+    /* Three primary drawing tool buttons */
+    .tool-item-btn {
+      transition: transform 0.26s cubic-bezier(0.34, 1.56, 0.64, 1), filter 0.26s ease, opacity 0.2s ease;
+      cursor: pointer;
+      opacity: 0.65;
+    }
+    .tool-item-btn:hover {
+      opacity: 0.95;
+      transform: translateY(-3px) scale(1.06);
+    }
+    /* Distinct elevated state when selected */
+    .tool-item-btn.active-tool {
+      opacity: 1 !important;
+      transform: translateY(-10px) scale(1.22);
+      filter: drop-shadow(0 10px 14px rgba(0, 0, 0, 0.85));
+      z-index: 30;
+    }
+
+    .color-swatch {
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+    .color-swatch:hover {
+      transform: translateY(-2px) scale(1.08);
+    }
+    .color-swatch.active {
+      transform: scale(1.22) translateY(-2px);
+      box-shadow: 0 3px 12px rgba(0, 0, 0, 0.6);
+    }
+
+    .rainbow-swatch {
+      background: conic-gradient(from 0deg, #ef4444, #f97316, #facc15, #16a34a, #06b6d4, #2563eb, #8b5cf6, #ec4899, #ef4444);
+      position: relative;
+    }
+
+    /* Custom range slider styling */
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      height: 12px;
+      width: 12px;
+      border-radius: 9999px;
+      background: #ffffff;
+      cursor: pointer;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.5);
+    }
+    input[type=range]::-moz-range-thumb {
+      height: 12px;
+      width: 12px;
+      border-radius: 9999px;
+      background: #ffffff;
+      cursor: pointer;
+      border: none;
+    }
+
+    @keyframes toastFade {
+      0% { opacity: 0; transform: translate(-50%, 12px) scale(0.96); }
+      15% { opacity: 1; transform: translate(-50%, 0) scale(1); }
+      85% { opacity: 1; transform: translate(-50%, 0) scale(1); }
+      100% { opacity: 0; transform: translate(-50%, -8px) scale(0.96); }
+    }
+    .toast-animate {
+      animation: toastFade 2.2s ease forwards;
+    }
+  </style>
+</head>
+<body class="w-screen h-screen overflow-hidden select-none relative bg-white">
+
+  <!-- 100% Fullscreen Canvas Area with Dynamic Background Layer -->
+  <main id="canvasWrapper" class="w-full h-full absolute inset-0 cursor-crosshair bg-white transition-colors duration-150">
+    <canvas id="paintCanvas" class="w-full h-full block absolute inset-0"></canvas>
+    <canvas id="previewCanvas" class="w-full h-full block absolute inset-0 pointer-events-none"></canvas>
+  </main>
+
+  <!-- Permanent Bottom Center Toolbar Dock -->
+  <div id="dockContainer" class="dock-container max-w-[98vw]">
+    <div class="dark-toolbar px-3 py-1 sm:px-3.5 sm:py-1 rounded-full flex items-center gap-1.5 sm:gap-2 shadow-2xl max-w-full">
+      
+      <!-- Group 1: Scribble Restart Ball, Undo, Redo -->
+      <div class="flex items-center gap-1.5 sm:gap-2 shrink-0">
+        <!-- Messy Scribble Writing Ball Button -->
+        <button id="scribbleBtn" title="reset canvas"
+          class="tool-btn flex items-center justify-center w-7 h-7 sm:w-8 sm:h-8 rounded-full hover:bg-zinc-800 text-zinc-300 hover:text-white cursor-pointer transition-colors p-0.5">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 28 28" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 6c-4.5-1-8.5 2-7.5 6.5 1 4.5 7.5 4 8.5-.5s-5.5-7.5-9.5-4c-3.5 3-1 9 4 10.5 5 1.5 11-2.5 9-8-1.5-4-8.5-3.5-7.5 2s7.5 7 11.5 2c3.5-4.5-1.5-10-6.5-9s-8 6.5-4.5 11 9 3 11.5-.5"/>
+            <path d="M7 11c2.5-3.5 9-4.5 12-1s2.5 8-2 10.5-8-1-8.5-4.5 4.5-6.5 8.5-4"/>
+            <path d="M10 19c3 3 8 2.5 11-.5s2-6.5-1.5-8.5-8 .5-7.5 4.5"/>
+            <path d="M4 14.5c1.5 4.5 6 7.5 11 6.5"/>
+            <path d="M22 17c1.5 3 0 6.5-3 7.5"/>
+          </svg>
+        </button>
+
+        <!-- Undo Button -->
+        <button id="undoBtn" title="undo (cmd/ctrl+z, backspace)" disabled
+          class="tool-btn flex items-center justify-center w-7 h-7 sm:w-7.5 sm:h-7.5 rounded-full hover:bg-zinc-800 text-zinc-300 hover:text-white disabled:opacity-25 disabled:cursor-not-allowed cursor-pointer transition-colors">
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 14 4 9l5-5"/>
+            <path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5v0a5.5 5.5 0 0 1-5.5 5.5H11"/>
+          </svg>
+        </button>
+
+        <!-- Redo Button -->
+        <button id="redoBtn" title="redo (cmd/ctrl+y, shift+cmd+z)" disabled
+          class="tool-btn flex items-center justify-center w-7 h-7 sm:w-7.5 sm:h-7.5 rounded-full hover:bg-zinc-800 text-zinc-300 hover:text-white disabled:opacity-25 disabled:cursor-not-allowed cursor-pointer transition-colors">
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="m15 14 5-5-5-5"/>
+            <path d="M20 9H9.5A5.5 5.5 0 0 0 4 14.5v0A5.5 5.5 0 0 0 9.5 20H13"/>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Divider -->
+      <div class="h-4 w-[1px] bg-zinc-800 shrink-0"></div>
+
+      <!-- Group 2: The Three Primary Drawing Tool Icons (centered, fixed scale) -->
+      <div class="flex items-center gap-1.5 sm:gap-2 shrink-0 px-0.5">
+        <!-- 1. Wooden Artist Paintbrush -->
+        <button id="toolBrush" title="brush (b)"
+          class="tool-item-btn active-tool w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center">
+          <img src="brush.png" alt="brush" class="w-6 h-6 sm:w-7 sm:h-7 object-contain pointer-events-none" onerror="this.onerror=null; this.src='https://placehold.co/32x32/18181b/ffffff?text=🖌️';" />
+        </button>
+
+        <!-- 2. Metallic Spray Can with Nozzle Valve -->
+        <button id="toolSpray" title="spray can (s)"
+          class="tool-item-btn w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center">
+          <img src="spray.png" alt="spray can" class="w-5 h-6 sm:w-6 sm:h-7 object-contain pointer-events-none" onerror="this.onerror=null; this.src='https://placehold.co/32x32/18181b/ffffff?text=💨';" />
+        </button>
+
+        <!-- 3. Red Organic Cutout Splat -->
+        <button id="toolCutout" title="cutout shape (c)"
+          class="tool-item-btn w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center">
+          <img src="cutout.png" alt="cutout shape" class="w-6 h-6 sm:w-7 sm:h-7 object-contain pointer-events-none" onerror="this.onerror=null; this.src='https://placehold.co/32x32/18181b/ffffff?text=✂️';" />
+        </button>
+      </div>
+
+      <!-- Divider -->
+      <div class="h-4 w-[1px] bg-zinc-800 shrink-0"></div>
+
+      <!-- Group 3: Size Slider (Thin Grey Track, Slender Vertical Cursor Line) -->
+      <div class="flex items-center gap-1.5 sm:gap-2 px-1 py-0.5 shrink-0">
+        <span class="w-1 h-1 rounded-full bg-zinc-400"></span>
+        <input id="brushSizeSlider" type="range" min="3" max="50" value="13"
+          aria-label="brush and spray size"
+          class="w-14 sm:w-16 cursor-ew-resize">
+        <span class="w-3.5 h-3.5 rounded-full bg-zinc-300"></span>
+      </div>
+
+      <!-- Divider -->
+      <div class="h-5 w-[1px] bg-zinc-800 shrink-0"></div>
+
+      <!-- Group 4: Circular Color Swatches -->
+      <div class="flex items-center gap-1.5 sm:gap-2 shrink-0">
+        <button data-color="#18181b" aria-label="black" title="black"
+          class="color-swatch active w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-zinc-950 border border-zinc-600 ring-2 ring-white cursor-pointer"></button>
+
+        <button data-color="#71717a" aria-label="grey" title="grey"
+          class="color-swatch w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-zinc-500 border border-zinc-600 ring-1 ring-zinc-700 cursor-pointer"></button>
+
+        <button data-color="#ffffff" aria-label="white" title="white"
+          class="color-swatch w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-white border border-zinc-400 ring-1 ring-zinc-700 cursor-pointer"></button>
+
+        <button data-color="#78350f" aria-label="brown" title="brown"
+          class="color-swatch w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-amber-900 border border-zinc-600 ring-1 ring-zinc-700 cursor-pointer"></button>
+
+        <button data-color="#d6c7b2" aria-label="beige" title="beige"
+          class="color-swatch w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-[#d6c7b2] border border-zinc-600 ring-1 ring-zinc-700 cursor-pointer"></button>
+
+        <button data-color="#d97706" aria-label="gold" title="gold"
+          class="color-swatch w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-amber-600 border border-zinc-600 ring-1 ring-zinc-700 cursor-pointer"></button>
+
+        <button data-color="#facc15" aria-label="yellow" title="yellow"
+          class="color-swatch w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-amber-400 border border-zinc-600 ring-1 ring-zinc-700 cursor-pointer"></button>
+
+        <button data-color="#f97316" aria-label="orange" title="orange"
+          class="color-swatch w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-orange-500 border border-zinc-600 ring-1 ring-zinc-700 cursor-pointer"></button>
+
+        <button data-color="#ef4444" aria-label="red" title="red"
+          class="color-swatch w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-red-500 border border-zinc-600 ring-1 ring-zinc-700 cursor-pointer"></button>
+
+        <button data-color="#ec4899" aria-label="pink" title="pink"
+          class="color-swatch w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-pink-500 border border-zinc-600 ring-1 ring-zinc-700 cursor-pointer"></button>
+
+        <button data-color="#8b5cf6" aria-label="purple" title="purple"
+          class="color-swatch w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-violet-500 border border-zinc-600 ring-1 ring-zinc-700 cursor-pointer"></button>
+
+        <button data-color="#2563eb" aria-label="blue" title="blue"
+          class="color-swatch w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-blue-600 border border-zinc-600 ring-1 ring-zinc-700 cursor-pointer"></button>
+
+        <button data-color="#16a34a" aria-label="green" title="green"
+          class="color-swatch w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-emerald-600 border border-zinc-600 ring-1 ring-zinc-700 cursor-pointer"></button>
+
+        <button id="rainbowPickerBtn" aria-label="custom color wheel" title="custom color wheel"
+          class="color-swatch rainbow-swatch w-5 h-5 sm:w-6 sm:h-6 rounded-full border border-zinc-500 ring-1 ring-zinc-700 cursor-pointer flex items-center justify-center">
+          <div id="rainbowIndicator" class="w-1.5 h-1.5 rounded-full bg-white border border-black/40 hidden"></div>
+        </button>
+      </div>
+
+      <!-- Divider -->
+      <div class="h-5 w-[1px] bg-zinc-800 shrink-0"></div>
+
+      <!-- Group 5: Background '#' Selector & Save PNG -->
+      <div class="flex items-center gap-1.5 sm:gap-2 shrink-0">
+        <button id="bgPickerBtn" aria-label="canvas background color" title="change background color"
+          class="tool-btn flex items-center justify-center w-5 h-5 sm:w-6 sm:h-6 text-zinc-400 hover:text-white font-mono font-bold text-xs sm:text-sm cursor-pointer transition-colors">
+          #
+        </button>
+
+        <button id="downloadBtn" title="save graffiti png"
+          class="tool-btn flex items-center justify-center w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-blue-600 hover:bg-blue-500 text-white shadow-xs cursor-pointer">
+          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="12" y1="4" x2="12" y2="15"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="5" y1="19" x2="19" y2="19"/>
+          </svg>
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Toast Notification -->
+  <div id="toast" class="fixed top-5 left-1/2 -translate-x-1/2 pointer-events-none z-50 hidden">
+    <div class="bg-zinc-900/95 backdrop-blur-md text-white text-xs font-normal px-3.5 py-1.5 rounded-full shadow-2xl flex items-center gap-2 border border-zinc-700 lowercase">
+      <span id="toastIcon"></span>
+      <span id="toastMessage">done</span>
+    </div>
+  </div>
+
+  <!-- Clear Confirmation Dialog (Dark Mode, Lowercase) -->
+  <div id="confirmModal" class="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs hidden flex items-center justify-center p-4">
+    <div class="bg-zinc-900 rounded-2xl p-5 max-w-xs w-full shadow-2xl text-center border border-zinc-800">
+      <h3 class="text-xs font-normal text-zinc-200 mb-4 tracking-normal lowercase">ok to restart from scratch?</h3>
+      <div class="flex items-center gap-2">
+        <button id="cancelClearBtn" class="flex-1 py-2 rounded-xl border border-zinc-700 text-xs font-normal text-zinc-300 hover:bg-zinc-800 cursor-pointer lowercase transition-colors">no</button>
+        <button id="confirmClearBtn" class="flex-1 py-2 rounded-xl bg-blue-600 text-xs font-normal text-white hover:bg-blue-500 shadow-xs cursor-pointer lowercase transition-colors">yes</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Background Color Modal (Dark Mode, Lowercase) -->
+  <div id="bgModal" class="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs hidden flex items-center justify-center p-4">
+    <div class="bg-zinc-900 rounded-2xl p-4 max-w-xs w-full shadow-2xl border border-zinc-800 flex flex-col gap-3">
+      <div class="flex items-center justify-between">
+        <span class="text-xs font-normal text-zinc-400 lowercase tracking-normal">background color</span>
+        <button id="closeBgModalBtn" class="w-6 h-6 rounded-full bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white flex items-center justify-center text-xs font-normal cursor-pointer">✕</button>
+      </div>
+      
+      <div class="grid grid-cols-7 gap-1.5 py-1">
+        <button data-bg="#ffffff" class="bg-preset w-6 h-6 rounded-full bg-white border border-zinc-400 cursor-pointer hover:scale-110 transition-transform"></button>
+        <button data-bg="#fbfbf9" class="bg-preset w-6 h-6 rounded-full bg-[#fbfbf9] border border-zinc-600 cursor-pointer hover:scale-110 transition-transform"></button>
+        <button data-bg="#f4f1ea" class="bg-preset w-6 h-6 rounded-full bg-[#f4f1ea] border border-zinc-600 cursor-pointer hover:scale-110 transition-transform"></button>
+        <button data-bg="#d6c7b2" class="bg-preset w-6 h-6 rounded-full bg-[#d6c7b2] border border-zinc-600 cursor-pointer hover:scale-110 transition-transform"></button>
+        <button data-bg="#71717a" class="bg-preset w-6 h-6 rounded-full bg-zinc-500 border border-zinc-600 cursor-pointer hover:scale-110 transition-transform"></button>
+        <button data-bg="#27272a" class="bg-preset w-6 h-6 rounded-full bg-zinc-800 border border-zinc-600 cursor-pointer hover:scale-110 transition-transform"></button>
+        <button data-bg="#18181b" class="bg-preset w-6 h-6 rounded-full bg-zinc-950 border border-zinc-600 cursor-pointer hover:scale-110 transition-transform"></button>
+      </div>
+
+      <div class="flex items-center gap-2 pt-1 border-t border-zinc-800">
+        <div class="relative flex-1">
+          <span class="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-500 text-xs">#</span>
+          <input id="bgHexInput" type="text" maxlength="6" value="ffffff" spellcheck="false"
+            class="w-full pl-6 pr-2 py-1.5 border border-zinc-700 rounded-full text-xs text-white lowercase focus:outline-none focus:border-blue-500 font-normal bg-zinc-800">
+        </div>
+        <button id="applyBgColorBtn" class="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-normal rounded-full cursor-pointer lowercase transition-colors">
+          apply
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Radial Color Picker Popover (Dark Mode, Lowercase) -->
+  <div id="colorPopover" class="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs hidden flex items-center justify-center p-4">
+    <div class="bg-zinc-900 rounded-2xl p-4 max-w-xs w-full shadow-2xl border border-zinc-800 flex flex-col items-center gap-3">
+      <div class="w-full flex items-center justify-between">
+        <span class="text-xs font-normal lowercase text-zinc-400 tracking-normal">color palette</span>
+        <button id="closePickerBtn" class="w-6 h-6 rounded-full bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white flex items-center justify-center text-xs font-normal cursor-pointer">✕</button>
+      </div>
+
+      <!-- Circular Radial Color Wheel -->
+      <div class="relative w-44 h-44 flex items-center justify-center select-none">
+        <canvas id="colorWheelCanvas" width="176" height="176" class="rounded-full shadow-inner cursor-crosshair"></canvas>
+        <div id="wheelCursor" class="w-3.5 h-3.5 rounded-full border-2 border-white shadow-md absolute pointer-events-none -translate-x-1/2 -translate-y-1/2 top-1/2 left-1/2 ring-1 ring-black/60"></div>
+      </div>
+
+      <!-- Brightness Slider -->
+      <div class="w-full flex flex-col gap-1 px-1">
+        <div class="flex justify-between text-[10px] font-normal text-zinc-400 lowercase">
+          <span>brightness</span>
+          <span id="lightnessVal">85%</span>
+        </div>
+        <input id="lightnessSlider" type="range" min="0" max="100" value="85" class="w-full accent-white cursor-pointer h-1.5 bg-zinc-700 rounded-full appearance-none">
+      </div>
+
+      <!-- Hex Input & Preview -->
+      <div class="w-full flex items-center gap-2 pt-1 border-t border-zinc-800">
+        <div id="pickerColorPreview" class="w-8 h-8 rounded-full border border-zinc-700 shrink-0" style="background-color: #18181b;"></div>
+        <div class="relative flex-1">
+          <span class="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-500 text-xs">#</span>
+          <input id="hexInput" type="text" maxlength="6" value="18181b" spellcheck="false"
+            class="w-full pl-6 pr-2 py-1.5 border border-zinc-700 rounded-full text-xs text-white lowercase focus:outline-none focus:border-blue-500 font-normal bg-zinc-800">
+        </div>
+        <button id="applyColorBtn" class="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-normal rounded-full shrink-0 cursor-pointer lowercase transition-colors">
+          select
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Core Application State
+    const state = {
+      tool: 'brush', // 'brush', 'spray', or 'cutout'
+      color: '#18181b', // current selected stroke color
+      bgColor: '#ffffff', // canvas paper background
+      sizeBase: 13, // brush and spray weight
+      isDrawing: false,
+      history: [],
+      historyIndex: -1,
+      maxHistory: 30
+    };
+
+    // DOM References
+    const container = document.getElementById('canvasWrapper');
+    const paintCanvas = document.getElementById('paintCanvas');
+    const previewCanvas = document.getElementById('previewCanvas');
+    const paintCtx = paintCanvas ? paintCanvas.getContext('2d') : null;
+    const previewCtx = previewCanvas ? previewCanvas.getContext('2d') : null;
+    const dockContainer = document.getElementById('dockContainer');
+
+    // Controls & Toolbar Buttons
+    const scribbleBtn = document.getElementById('scribbleBtn');
+    const undoBtn = document.getElementById('undoBtn');
+    const redoBtn = document.getElementById('redoBtn');
+    const downloadBtn = document.getElementById('downloadBtn');
+    const toolBrush = document.getElementById('toolBrush');
+    const toolSpray = document.getElementById('toolSpray');
+    const toolCutout = document.getElementById('toolCutout');
+    const brushSizeSlider = document.getElementById('brushSizeSlider');
+    const swatches = document.querySelectorAll('.color-swatch:not(.rainbow-swatch)');
+    const rainbowBtn = document.getElementById('rainbowPickerBtn');
+    const rainbowIndicator = document.getElementById('rainbowIndicator');
+    const bgPickerBtn = document.getElementById('bgPickerBtn');
+
+    // Modals & Popovers
+    const confirmModal = document.getElementById('confirmModal');
+    const cancelClearBtn = document.getElementById('cancelClearBtn');
+    const confirmClearBtn = document.getElementById('confirmClearBtn');
+    const bgModal = document.getElementById('bgModal');
+    const closeBgModalBtn = document.getElementById('closeBgModalBtn');
+    const applyBgColorBtn = document.getElementById('applyBgColorBtn');
+    const bgHexInput = document.getElementById('bgHexInput');
+    const bgPresets = document.querySelectorAll('.bg-preset');
+
+    const colorPopover = document.getElementById('colorPopover');
+    const closePickerBtn = document.getElementById('closePickerBtn');
+    const applyColorBtn = document.getElementById('applyColorBtn');
+    const colorWheelCanvas = document.getElementById('colorWheelCanvas');
+    const wheelCursor = document.getElementById('wheelCursor');
+    const lightnessSlider = document.getElementById('lightnessSlider');
+    const lightnessVal = document.getElementById('lightnessVal');
+    const pickerColorPreview = document.getElementById('pickerColorPreview');
+    const hexInput = document.getElementById('hexInput');
+
+    let dpr = window.devicePixelRatio || 1;
+    let cssWidth = 0;
+    let cssHeight = 0;
+
+    function resizeCanvas() {
+      if (!paintCanvas || !previewCanvas || !paintCtx || !previewCtx) return;
+
+      cssWidth = window.innerWidth;
+      cssHeight = window.innerHeight;
+      dpr = window.devicePixelRatio || 1;
+
+      let tempCanvas = null;
+      if (paintCanvas.width > 0 && paintCanvas.height > 0) {
+        tempCanvas = document.createElement('canvas');
+        tempCanvas.width = paintCanvas.width;
+        tempCanvas.height = paintCanvas.height;
+        const tempCtx = tempCanvas.getContext('2d');
+        tempCtx.drawImage(paintCanvas, 0, 0);
+      }
+
+      paintCanvas.width = Math.round(cssWidth * dpr);
+      paintCanvas.height = Math.round(cssHeight * dpr);
+      previewCanvas.width = Math.round(cssWidth * dpr);
+      previewCanvas.height = Math.round(cssHeight * dpr);
+
+      paintCtx.scale(dpr, dpr);
+      previewCtx.scale(dpr, dpr);
+
+      if (tempCanvas) {
+        paintCtx.drawImage(tempCanvas, 0, 0, cssWidth, cssHeight);
+      } else {
+        paintCtx.clearRect(0, 0, cssWidth, cssHeight);
+        updateContainerBackground();
+        initInitialHistoryState();
+      }
+    }
+
+    function initInitialHistoryState() {
+      if (!paintCanvas || !paintCtx) return;
+      if (state.history.length === 0) {
+        const imgData = paintCtx.getImageData(0, 0, paintCanvas.width, paintCanvas.height);
+        state.history = [{
+          data: imgData,
+          bgColor: state.bgColor
+        }];
+        state.historyIndex = 0;
+        updateHistoryButtons();
+      }
+    }
+
+    function updateContainerBackground() {
+      document.body.style.backgroundColor = state.bgColor;
+      if (container) {
+        container.style.backgroundColor = state.bgColor;
+      }
+    }
+
+    function saveHistoryState() {
+      if (!paintCanvas || !paintCtx) return;
+
+      if (state.historyIndex < state.history.length - 1) {
+        state.history = state.history.slice(0, state.historyIndex + 1);
+      }
+
+      const imgData = paintCtx.getImageData(0, 0, paintCanvas.width, paintCanvas.height);
+      state.history.push({
+        data: imgData,
+        bgColor: state.bgColor
+      });
+
+      if (state.history.length > state.maxHistory) {
+        state.history.shift();
+      } else {
+        state.historyIndex = state.history.length - 1;
+      }
+
+      updateHistoryButtons();
+    }
+
+    function updateHistoryButtons() {
+      if (undoBtn) undoBtn.disabled = state.historyIndex <= 0;
+      if (redoBtn) redoBtn.disabled = state.historyIndex >= state.history.length - 1;
+    }
+
+    function undo() {
+      if (!paintCtx) return;
+      if (state.historyIndex > 0) {
+        state.historyIndex--;
+        const snapshot = state.history[state.historyIndex];
+        paintCtx.putImageData(snapshot.data, 0, 0);
+        state.bgColor = snapshot.bgColor || '#ffffff';
+        updateContainerBackground();
+        updateHistoryButtons();
+        showToast('undo', '↺');
+      }
+    }
+
+    function redo() {
+      if (!paintCtx) return;
+      if (state.historyIndex < state.history.length - 1) {
+        state.historyIndex++;
+        const snapshot = state.history[state.historyIndex];
+        paintCtx.putImageData(snapshot.data, 0, 0);
+        state.bgColor = snapshot.bgColor || '#ffffff';
+        updateContainerBackground();
+        updateHistoryButtons();
+        showToast('redo', '↻');
+      }
+    }
+
+    let points = [];
+    let lastVelocity = 0;
+    let lastWidth = state.sizeBase;
+    let sprayInterval = null;
+    let currentPointerPos = null;
+    let holdDuration = 0;
+    let activeDrips = [];
+    let dripAnimationId = null;
+    let lastSprayAngle = 0;
+
+    function getCanvasCoords(e) {
+      const clientX = e.clientX ?? (e.touches && e.touches[0] ? e.touches[0].clientX : 0);
+      const clientY = e.clientY ?? (e.touches && e.touches[0] ? e.touches[0].clientY : 0);
+      return {
+        x: clientX,
+        y: clientY,
+        time: Date.now()
+      };
+    }
+
+    function emitSprayParticles(center, strokeAngle = null, speed = 0, densityFactor = 1.0) {
+      if (!paintCtx) return;
+      paintCtx.save();
+      const rgb = hexToRgb(state.color) || { r: 24, g: 24, b: 27 };
+      const colBase = `${rgb.r}, ${rgb.g}, ${rgb.b}`;
+
+      const baseR = state.sizeBase * 1.5;
+      const speedScale = Math.max(0.75, Math.min(1.3, 1 - (speed * 0.08)));
+      const rx = baseR * speedScale;
+      const ry = (strokeAngle !== null) ? rx * (1.18 + Math.random() * 0.18) : rx;
+      const angle = (strokeAngle !== null) ? strokeAngle + (Math.PI / 2) : 0;
+
+      // Feathered Aerosol Fan
+      paintCtx.save();
+      paintCtx.translate(center.x, center.y);
+      paintCtx.rotate(angle);
+
+      const grad = paintCtx.createRadialGradient(0, 0, rx * 0.1, 0, 0, rx * 1.08);
+      grad.addColorStop(0, `rgba(${colBase}, ${0.54 * densityFactor})`);
+      grad.addColorStop(0.4, `rgba(${colBase}, ${0.30 * densityFactor})`);
+      grad.addColorStop(0.76, `rgba(${colBase}, ${0.10 * densityFactor})`);
+      grad.addColorStop(1, `rgba(${colBase}, 0)`);
+
+      paintCtx.fillStyle = grad;
+      paintCtx.beginPath();
+      paintCtx.ellipse(0, 0, rx * 1.08, ry * 1.08, 0, 0, Math.PI * 2);
+      paintCtx.fill();
+
+      // Dense Pressurized Core
+      const coreGrad = paintCtx.createRadialGradient(0, 0, 0, 0, 0, rx * 0.45);
+      coreGrad.addColorStop(0, `rgba(${colBase}, ${0.72 * densityFactor})`);
+      coreGrad.addColorStop(0.7, `rgba(${colBase}, ${0.38 * densityFactor})`);
+      coreGrad.addColorStop(1, `rgba(${colBase}, 0)`);
+
+      paintCtx.fillStyle = coreGrad;
+      paintCtx.beginPath();
+      paintCtx.ellipse(0, 0, rx * 0.45, ry * 0.45, 0, 0, Math.PI * 2);
+      paintCtx.fill();
+      paintCtx.restore();
+
+      // Dense micro-atomized pigment droplets
+      const particleCount = Math.round((state.sizeBase * 3.6 + 26) * densityFactor);
+      paintCtx.fillStyle = `rgb(${colBase})`;
+
+      for (let i = 0; i < particleCount; i++) {
+        const u1 = Math.random();
+        const u2 = Math.random();
+        const rNorm = Math.sqrt(-2.0 * Math.log(u1 || 0.001)) * Math.cos(2.0 * Math.PI * u2) * 0.36;
+        const theta = Math.random() * Math.PI * 2;
+        
+        let ox = Math.cos(theta) * Math.abs(rNorm) * rx;
+        let oy = Math.sin(theta) * Math.abs(rNorm) * ry;
+
+        if (strokeAngle !== null) {
+          const cosA = Math.cos(angle);
+          const sinA = Math.sin(angle);
+          const rox = ox * cosA - oy * sinA;
+          const roy = ox * sinA + oy * cosA;
+          ox = rox;
+          oy = roy;
+        }
+
+        const px = center.x + ox;
+        const py = center.y + oy;
+
+        const distRatio = Math.hypot(ox, oy) / (rx * 1.1);
+        const alpha = Math.max(0.08, (1 - distRatio * 0.85) * (0.35 + Math.random() * 0.42));
+        const dotSize = Math.max(0.6, (1 - distRatio * 0.5) * (0.75 + Math.random() * 1.15));
+
+        paintCtx.globalAlpha = Math.min(1.0, alpha * densityFactor);
+        paintCtx.beginPath();
+        paintCtx.arc(px, py, dotSize, 0, Math.PI * 2);
+        paintCtx.fill();
+      }
+
+      paintCtx.restore();
+    }
+
+    function checkAndSpawnDrip(pos, holdMs) {
+      const dripThreshold = 200;
+      if (holdMs > dripThreshold && Math.random() < 0.42) {
+        const dripX = pos.x + (Math.random() - 0.5) * (state.sizeBase * 0.8);
+        const dripY = pos.y + (Math.random() * 2);
+        const lengthTarget = (state.sizeBase * 2.8) + Math.random() * (state.sizeBase * 5.2) + (holdMs * 0.05);
+        const dripWidth = Math.max(1.4, (state.sizeBase * 0.22) * (0.8 + Math.random() * 0.55));
+
+        activeDrips.push({
+          startX: dripX,
+          startY: dripY,
+          currentY: dripY,
+          targetY: Math.min(cssHeight - 5, dripY + lengthTarget),
+          width: dripWidth,
+          speed: 1.4 + Math.random() * 2.2,
+          color: state.color,
+          wiggle: (Math.random() - 0.5) * 0.35,
+          completed: false
+        });
+
+        if (!dripAnimationId) {
+          animateDrips();
+        }
+      }
+    }
+
+    function animateDrips() {
+      if (!paintCtx) return;
+      let stillActive = false;
+
+      paintCtx.save();
+      for (const drip of activeDrips) {
+        if (!drip.completed) {
+          paintCtx.fillStyle = drip.color;
+          paintCtx.strokeStyle = drip.color;
+          paintCtx.lineCap = 'round';
+
+          const nextY = Math.min(drip.targetY, drip.currentY + drip.speed);
+          const progress = (drip.currentY - drip.startY) / (drip.targetY - drip.startY || 1);
+          const currentWidth = Math.max(0.6, drip.width * (1 - progress * 0.45));
+
+          paintCtx.lineWidth = currentWidth;
+          paintCtx.beginPath();
+          paintCtx.moveTo(drip.startX, drip.currentY);
+
+          drip.startX += (Math.random() - 0.5) * drip.wiggle;
+          paintCtx.lineTo(drip.startX, nextY);
+          paintCtx.stroke();
+
+          drip.currentY = nextY;
+
+          if (drip.currentY >= drip.targetY) {
+            drip.completed = true;
+            paintCtx.beginPath();
+            paintCtx.arc(drip.startX, drip.currentY, currentWidth * 1.15, 0, Math.PI * 2);
+            paintCtx.fill();
+          } else {
+            stillActive = true;
+          }
+        }
+      }
+      paintCtx.restore();
+
+      if (stillActive) {
+        dripAnimationId = requestAnimationFrame(animateDrips);
+      } else {
+        activeDrips = [];
+        dripAnimationId = null;
+      }
+    }
+
+    function drawNaturalBrushSegment(p1, p2) {
+      if (!paintCtx) return;
+      const distance = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+      const timeDelta = Math.max(p2.time - p1.time, 10);
+      const currentVelocity = distance / timeDelta;
+
+      const velocity = 0.6 * currentVelocity + 0.4 * lastVelocity;
+      lastVelocity = velocity;
+
+      const minRatio = 0.45;
+      const maxRatio = 1.6;
+      const targetWidth = Math.max(
+        state.sizeBase * minRatio,
+        Math.min(state.sizeBase * maxRatio, state.sizeBase / (1 + velocity * 1.2))
+      );
+      const width = lastWidth * 0.65 + targetWidth * 0.35;
+      lastWidth = width;
+
+      const angle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
+      const perpAngle = angle + Math.PI / 2;
+      const steps = Math.max(1, Math.floor(distance / 2));
+
+      paintCtx.save();
+      paintCtx.beginPath();
+      paintCtx.moveTo(p1.x, p1.y);
+      paintCtx.lineTo(p2.x, p2.y);
+      paintCtx.strokeStyle = state.color;
+      paintCtx.lineWidth = width * 0.88;
+      paintCtx.lineCap = 'round';
+      paintCtx.lineJoin = 'round';
+      paintCtx.globalAlpha = 0.95;
+      paintCtx.stroke();
+
+      const numBristles = Math.min(5, Math.max(3, Math.floor(width / 2.6)));
+      paintCtx.fillStyle = state.color;
+
+      for (let s = 0; s <= steps; s++) {
+        const t = s / steps;
+        const cx = p1.x + (p2.x - p1.x) * t;
+        const cy = p1.y + (p2.y - p1.y) * t;
+
+        for (let b = 0; b < numBristles; b++) {
+          const offsetDist = ((b / (numBristles - 1)) - 0.5) * width * (0.8 + Math.random() * 0.4);
+          const jitterX = Math.cos(perpAngle) * offsetDist + (Math.random() - 0.5) * 1.2;
+          const jitterY = Math.sin(perpAngle) * offsetDist + (Math.random() - 0.5) * 1.2;
+          const bristleRadius = Math.max(0.5, (width / 5.2) * (0.6 + Math.random() * 0.6));
+
+          paintCtx.globalAlpha = 0.25 + Math.random() * 0.5;
+          paintCtx.beginPath();
+          paintCtx.arc(cx + jitterX, cy + jitterY, bristleRadius, 0, Math.PI * 2);
+          paintCtx.fill();
+        }
+
+        if (Math.random() < 0.16) {
+          paintCtx.save();
+          paintCtx.globalCompositeOperation = 'destination-out';
+          paintCtx.beginPath();
+          const dustX = cx + (Math.random() - 0.5) * width * 0.65;
+          const dustY = cy + (Math.random() - 0.5) * width * 0.65;
+          paintCtx.arc(dustX, dustY, 0.4 + Math.random() * 0.8, 0, Math.PI * 2);
+          paintCtx.fill();
+          paintCtx.restore();
+        }
+      }
+      paintCtx.restore();
+    }
+
+    function renderCutoutShape(ctx, pts, fillStyle, isLivePreview = false) {
+      if (!ctx || pts.length < 2) return;
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(pts[0].x, pts[0].y);
+
+      for (let i = 1; i < pts.length; i++) {
+        const pPrev = pts[i - 1];
+        const pCurr = pts[i];
+        const midX = (pPrev.x + pCurr.x) / 2;
+        const midY = (pPrev.y + pCurr.y) / 2;
+
+        const dist = Math.hypot(pCurr.x - pPrev.x, pCurr.y - pPrev.y);
+        const perpX = -(pCurr.y - pPrev.y) / (dist || 1);
+        const perpY = (pCurr.x - pPrev.x) / (dist || 1);
+        const jitter = (Math.sin(i * 3.7) * 1.2 + Math.sin(i * 7.1) * 0.6);
+
+        ctx.quadraticCurveTo(
+          midX + perpX * jitter,
+          midY + perpY * jitter,
+          pCurr.x,
+          pCurr.y
+        );
+      }
+
+      ctx.closePath();
+      ctx.fillStyle = fillStyle;
+      ctx.globalAlpha = isLivePreview ? 0.94 : 1.0;
+      ctx.fill();
+
+      ctx.strokeStyle = fillStyle;
+      ctx.lineWidth = 1.0;
+      ctx.lineJoin = 'round';
+      ctx.stroke();
+
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const p of pts) {
+        if (p.x < minX) minX = p.x;
+        if (p.y < minY) minY = p.y;
+        if (p.x > maxX) maxX = p.x;
+        if (p.y > maxY) maxY = p.y;
+      }
+
+      const boundW = maxX - minX;
+      const boundH = maxY - minY;
+      const area = boundW * boundH;
+
+      if (area > 40) {
+        const dustCount = Math.min(isLivePreview ? 5 : 20, Math.floor(area * 0.00045));
+        ctx.save();
+        ctx.clip();
+        ctx.globalCompositeOperation = 'destination-out';
+
+        for (let d = 0; d < dustCount; d++) {
+          const dx = minX + Math.random() * boundW;
+          const dy = minY + Math.random() * boundH;
+          const r = 0.35 + Math.random() * 0.6;
+
+          ctx.globalAlpha = 0.25 + Math.random() * 0.45;
+          ctx.beginPath();
+          ctx.arc(dx, dy, r, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.restore();
+      }
+      ctx.restore();
+    }
+
+    function onPointerDown(e) {
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      
+      // Prevent drawing on the canvas if clicking inside modals or toolbar
+      if (e.target.closest('#dockContainer, #confirmModal, #bgModal, #colorPopover')) {
+        return;
+      }
+
+      e.preventDefault();
+      state.isDrawing = true;
+
+      const pt = getCanvasCoords(e);
+      points = [pt];
+      lastVelocity = 0;
+      lastWidth = state.sizeBase;
+      currentPointerPos = pt;
+      holdDuration = 0;
+      lastSprayAngle = 0;
+
+      if (state.tool === 'brush') {
+        paintCtx.save();
+        paintCtx.beginPath();
+        paintCtx.arc(pt.x, pt.y, state.sizeBase / 2, 0, Math.PI * 2);
+        paintCtx.fillStyle = state.color;
+        paintCtx.fill();
+        paintCtx.restore();
+      } else if (state.tool === 'spray') {
+        emitSprayParticles(pt, null, 0, 1.0);
+        
+        clearInterval(sprayInterval);
+        sprayInterval = setInterval(() => {
+          if (!state.isDrawing || !currentPointerPos) return;
+          holdDuration += 40;
+          emitSprayParticles(currentPointerPos, lastSprayAngle, 0, 0.72);
+          checkAndSpawnDrip(currentPointerPos, holdDuration);
+        }, 40);
+      } else if (state.tool === 'cutout') {
+        if (previewCtx) {
+          previewCtx.clearRect(0, 0, cssWidth, cssHeight);
+          renderCutoutShape(previewCtx, points, state.color, true);
+        }
+      }
+    }
+
+    function onPointerMove(e) {
+      if (!state.isDrawing) return;
+      e.preventDefault();
+
+      const pt = getCanvasCoords(e);
+      const prevPt = points[points.length - 1];
+
+      const dist = Math.hypot(pt.x - prevPt.x, pt.y - prevPt.y);
+      if (dist < 2) return;
+
+      if (dist > 6) {
+        holdDuration = Math.max(0, holdDuration - 60);
+      }
+      currentPointerPos = pt;
+      points.push(pt);
+
+      if (state.tool === 'brush') {
+        drawNaturalBrushSegment(prevPt, pt);
+      } else if (state.tool === 'spray') {
+        const strokeAngle = Math.atan2(pt.y - prevPt.y, pt.x - prevPt.x);
+        lastSprayAngle = strokeAngle;
+        const timeDelta = Math.max(pt.time - prevPt.time, 10);
+        const speed = dist / timeDelta;
+
+        const stepDist = Math.max(3.5, state.sizeBase * 0.28);
+        const steps = Math.max(1, Math.floor(dist / stepDist));
+
+        for (let s = 1; s <= steps; s++) {
+          const t = s / steps;
+          const interpPt = {
+            x: prevPt.x + (pt.x - prevPt.x) * t,
+            y: prevPt.y + (pt.y - prevPt.y) * t
+          };
+          emitSprayParticles(interpPt, strokeAngle, speed, 0.46);
+        }
+      } else if (state.tool === 'cutout') {
+        if (previewCtx) {
+          previewCtx.clearRect(0, 0, cssWidth, cssHeight);
+          renderCutoutShape(previewCtx, points, state.color, true);
+        }
+      }
+    }
+
+    function onPointerUp(e) {
+      if (!state.isDrawing) return;
+      e.preventDefault();
+      state.isDrawing = false;
+      clearInterval(sprayInterval);
+      sprayInterval = null;
+
+      if (state.tool === 'cutout' && points.length >= 2) {
+        if (previewCtx) previewCtx.clearRect(0, 0, cssWidth, cssHeight);
+        renderCutoutShape(paintCtx, points, state.color, false);
+      }
+
+      points = [];
+      saveHistoryState();
+    }
+
+    window.addEventListener('pointerdown', onPointerDown);
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
+    window.addEventListener('pointercancel', onPointerUp);
+
+    function setTool(toolName) {
+      state.tool = toolName;
+
+      // Raise the selected tool cleanly over the top edge of the toolbar
+      if (toolBrush) toolBrush.classList.toggle('active-tool', toolName === 'brush');
+      if (toolSpray) toolSpray.classList.toggle('active-tool', toolName === 'spray');
+      if (toolCutout) toolCutout.classList.toggle('active-tool', toolName === 'cutout');
+
+      if (toolName === 'brush') {
+        showToast('ink brush', '🖌️');
+      } else if (toolName === 'spray') {
+        showToast('spray can', '💨');
+      } else if (toolName === 'cutout') {
+        showToast('shape cutout', '✂️');
+      }
+    }
+
+    if (toolBrush) toolBrush.addEventListener('click', () => setTool('brush'));
+    if (toolSpray) toolSpray.addEventListener('click', () => setTool('spray'));
+    if (toolCutout) toolCutout.addEventListener('click', () => setTool('cutout'));
+
+    if (brushSizeSlider) {
+      brushSizeSlider.addEventListener('input', (e) => {
+        state.sizeBase = parseInt(e.target.value, 10);
+        lastWidth = state.sizeBase;
+      });
+    }
+
+    // Color Swatch Selection
+    function selectColor(hex, isCustom = false) {
+      state.color = hex.toLowerCase();
+
+      swatches.forEach(s => {
+        s.classList.remove('active', 'ring-2', 'ring-white', 'ring-zinc-400');
+        if (!isCustom && s.getAttribute('data-color') && s.getAttribute('data-color').toLowerCase() === state.color) {
+          s.classList.add('active', 'ring-2', 'ring-white');
+        }
+      });
+
+      if (rainbowBtn && rainbowIndicator) {
+        if (isCustom) {
+          rainbowBtn.classList.add('active', 'ring-2', 'ring-white');
+          rainbowIndicator.classList.remove('hidden');
+          rainbowIndicator.style.backgroundColor = state.color;
+        } else {
+          rainbowBtn.classList.remove('active', 'ring-2', 'ring-white');
+          rainbowIndicator.classList.add('hidden');
+        }
+      }
+    }
+
+    swatches.forEach(swatch => {
+      swatch.addEventListener('click', () => {
+        const hex = swatch.getAttribute('data-color');
+        if (hex) selectColor(hex, false);
+      });
+    });
+
+    let currentHue = 0;
+    let currentSaturation = 0;
+    let currentLightness = 85;
+    let isDraggingWheel = false;
+
+    function renderColorWheel() {
+      if (!colorWheelCanvas) return;
+      const w = colorWheelCanvas.width;
+      const h = colorWheelCanvas.height;
+      const ctx = colorWheelCanvas.getContext('2d');
+      const cx = w / 2;
+      const cy = h / 2;
+      const radius = cx;
+
+      const imgData = ctx.createImageData(w, h);
+      const data = imgData.data;
+
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          const dx = x - cx;
+          const dy = y - cy;
+          const dist = Math.hypot(dx, dy);
+          const idx = (y * w + x) * 4;
+
+          if (dist <= radius) {
+            let angle = Math.atan2(dy, dx) * (180 / Math.PI);
+            if (angle < 0) angle += 360;
+
+            const sat = Math.min(1, dist / radius);
+            const val = currentLightness / 100;
+
+            const rgb = hsvToRgb(angle, sat, val);
+            data[idx] = rgb.r;
+            data[idx + 1] = rgb.g;
+            data[idx + 2] = rgb.b;
+            data[idx + 3] = 255;
+          } else {
+            data[idx + 3] = 0;
+          }
+        }
+      }
+      ctx.putImageData(imgData, 0, 0);
+    }
+
+    function hsvToRgb(h, s, v) {
+      const c = v * s;
+      const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+      const m = v - c;
+      let r = 0, g = 0, b = 0;
+
+      if (h >= 0 && h < 60) { r = c; g = x; b = 0; }
+      else if (h >= 60 && h < 120) { r = x; g = c; b = 0; }
+      else if (h >= 120 && h < 180) { r = 0; g = c; b = 0; }
+      else if (h >= 180 && h < 240) { r = 0; g = x; b = c; }
+      else if (h >= 240 && h < 300) { r = x; g = 0; b = c; }
+      else { r = c; g = 0; b = x; }
+
+      return {
+        r: Math.round((r + m) * 255),
+        g: Math.round((g + m) * 255),
+        b: Math.round((b + m) * 255)
+      };
+    }
+
+    function rgbToHex(r, g, b) {
+      return ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1).toLowerCase();
+    }
+
+    function hexToRgb(hex) {
+      if (!hex) return null;
+      let clean = hex.replace('#', '').trim();
+      if (clean.length === 3) {
+        clean = clean.split('').map(c => c + c).join('');
+      }
+      if (clean.length !== 6) return null;
+      const num = parseInt(clean, 16);
+      if (isNaN(num)) return null;
+      return {
+        r: (num >> 16) & 255,
+        g: (num >> 8) & 255,
+        b: num & 255
+      };
+    }
+
+    function rgbToHsv(r, g, b) {
+      r /= 255; g /= 255; b /= 255;
+      const max = Math.max(r, g, b), min = Math.min(r, g, b);
+      let h = 0, s = 0, v = max;
+      const d = max - min;
+      s = max === 0 ? 0 : d / max;
+
+      if (max !== min) {
+        switch (max) {
+          case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+          case g: h = (b - r) / d + 2; break;
+          case b: h = (r - g) / d + 4; break;
+        }
+        h /= 6;
+      }
+      return { h: h * 360, s: s, v: v };
+    }
+
+    function updatePickerFromHsv() {
+      if (!hexInput || !pickerColorPreview || !colorWheelCanvas || !wheelCursor) return;
+      const rgb = hsvToRgb(currentHue, currentSaturation, currentLightness / 100);
+      const hex = rgbToHex(rgb.r, rgb.g, rgb.b);
+      hexInput.value = hex;
+      pickerColorPreview.style.backgroundColor = '#' + hex;
+
+      const rect = colorWheelCanvas.getBoundingClientRect();
+      const radius = rect.width / 2;
+      const rad = currentHue * (Math.PI / 180);
+      const dist = currentSaturation * radius;
+      const cx = radius + Math.cos(rad) * dist;
+      const cy = radius + Math.sin(rad) * dist;
+
+      wheelCursor.style.left = `${cx}px`;
+      wheelCursor.style.top = `${cy}px`;
+    }
+
+    function handleWheelPick(e) {
+      if (!colorWheelCanvas) return;
+      const rect = colorWheelCanvas.getBoundingClientRect();
+      const cx = rect.width / 2;
+      const cy = rect.height / 2;
+      const clientX = e.clientX ?? (e.touches && e.touches[0] ? e.touches[0].clientX : 0);
+      const clientY = e.clientY ?? (e.touches && e.touches[0] ? e.touches[0].clientY : 0);
+      const dx = clientX - rect.left - cx;
+      const dy = clientY - rect.top - cy;
+
+      const dist = Math.hypot(dx, dy);
+      const radius = cx;
+      currentSaturation = Math.min(1, dist / radius);
+
+      let angle = Math.atan2(dy, dx) * (180 / Math.PI);
+      if (angle < 0) angle += 360;
+      currentHue = angle;
+
+      updatePickerFromHsv();
+    }
+
+    if (colorWheelCanvas) {
+      colorWheelCanvas.addEventListener('pointerdown', (e) => {
+        isDraggingWheel = true;
+        handleWheelPick(e);
+      });
+    }
+
+    window.addEventListener('pointermove', (e) => {
+      if (isDraggingWheel) handleWheelPick(e);
+    });
+
+    window.addEventListener('pointerup', () => {
+      isDraggingWheel = false;
+    });
+
+    if (lightnessSlider) {
+      lightnessSlider.addEventListener('input', (e) => {
+        currentLightness = parseInt(e.target.value, 10);
+        if (lightnessVal) lightnessVal.textContent = `${currentLightness}%`;
+        renderColorWheel();
+        updatePickerFromHsv();
+      });
+    }
+
+    if (hexInput) {
+      hexInput.addEventListener('input', () => {
+        const rgb = hexToRgb(hexInput.value);
+        if (rgb) {
+          const hsv = rgbToHsv(rgb.r, rgb.g, rgb.b);
+          currentHue = hsv.h;
+          currentSaturation = hsv.s;
+          currentLightness = Math.round(hsv.v * 100);
+          if (lightnessSlider) lightnessSlider.value = currentLightness;
+          if (lightnessVal) lightnessVal.textContent = `${currentLightness}%`;
+          renderColorWheel();
+          updatePickerFromHsv();
+        }
+      });
+    }
+
+    if (rainbowBtn && colorPopover) {
+      rainbowBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const rgb = hexToRgb(state.color) || { r: 24, g: 24, b: 27 };
+        const hsv = rgbToHsv(rgb.r, rgb.g, rgb.b);
+        currentHue = hsv.h;
+        currentSaturation = hsv.s;
+        currentLightness = 85;
+        if (lightnessSlider) lightnessSlider.value = 85;
+        if (lightnessVal) lightnessVal.textContent = '85%';
+
+        renderColorWheel();
+        updatePickerFromHsv();
+        colorPopover.classList.remove('hidden');
+      });
+    }
+
+    if (closePickerBtn && colorPopover) {
+      closePickerBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        colorPopover.classList.add('hidden');
+      });
+    }
+
+    if (applyColorBtn && colorPopover) {
+      applyColorBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (hexInput) {
+          const hex = '#' + hexInput.value.trim().toLowerCase();
+          selectColor(hex, true);
+        }
+        colorPopover.classList.add('hidden');
+        showToast('color selected', '🎨');
+      });
+    }
+
+    function applyNewBackground(hex) {
+      state.bgColor = hex.toLowerCase();
+      updateContainerBackground();
+      saveHistoryState();
+      showToast('background updated', '#');
+    }
+
+    if (bgPickerBtn && bgModal && bgHexInput) {
+      bgPickerBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        state.isDrawing = false;
+        clearInterval(sprayInterval);
+        bgHexInput.value = state.bgColor.replace('#', '').toLowerCase();
+        bgModal.classList.remove('hidden');
+      });
+    }
+
+    if (closeBgModalBtn && bgModal) {
+      closeBgModalBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        bgModal.classList.add('hidden');
+      });
+    }
+
+    bgPresets.forEach(preset => {
+      preset.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const col = preset.getAttribute('data-bg');
+        if (col) {
+          applyNewBackground(col);
+          if (bgModal) bgModal.classList.add('hidden');
+        }
+      });
+    });
+
+    if (applyBgColorBtn && bgHexInput) {
+      applyBgColorBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        let val = bgHexInput.value.trim().replace(/^#/, '');
+        if (val.length === 3) {
+          val = val.split('').map(c => c + c).join('');
+        }
+        const hex = '#' + val;
+        if (hexToRgb(hex)) {
+          applyNewBackground(hex);
+          if (bgModal) bgModal.classList.add('hidden');
+        }
+      });
+
+      bgHexInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          applyBgColorBtn.click();
+        }
+      });
+    }
+
+    // Modal click propagation blockers
+    [bgModal, confirmModal, colorPopover].forEach(modal => {
+      if (modal) {
+        modal.addEventListener('pointerdown', (e) => e.stopPropagation());
+        modal.addEventListener('mousedown', (e) => e.stopPropagation());
+        modal.addEventListener('touchstart', (e) => e.stopPropagation());
+        modal.addEventListener('click', (e) => {
+          if (e.target === modal) {
+            modal.classList.add('hidden');
+          }
+        });
+      }
+    });
+
+    if (downloadBtn) {
+      downloadBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (!paintCanvas) return;
+        try {
+          const exportCanvas = document.createElement('canvas');
+          exportCanvas.width = paintCanvas.width;
+          exportCanvas.height = paintCanvas.height;
+          const expCtx = exportCanvas.getContext('2d');
+
+          expCtx.fillStyle = state.bgColor;
+          expCtx.fillRect(0, 0, exportCanvas.width, exportCanvas.height);
+          expCtx.drawImage(paintCanvas, 0, 0);
+
+          const now = new Date();
+          const year = now.getFullYear();
+          const month = String(now.getMonth() + 1).padStart(2, '0');
+          const day = String(now.getDate()).padStart(2, '0');
+          const hours = String(now.getHours()).padStart(2, '0');
+          const minutes = String(now.getMinutes()).padStart(2, '0');
+          const seconds = String(now.getSeconds()).padStart(2, '0');
+          const timestamp = `${year}-${month}-${day}_${hours}-${minutes}-${seconds}`;
+
+          const dataUrl = exportCanvas.toDataURL('image/png');
+          const link = document.createElement('a');
+          link.download = `graffiti-${timestamp}.png`;
+          link.href = dataUrl;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+
+          showToast(`graffiti-${timestamp}.png saved`, '✓');
+        } catch (err) {
+          showToast('export failed', '✕');
+        }
+      });
+    }
+
+    if (scribbleBtn && confirmModal) {
+      scribbleBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        state.isDrawing = false;
+        clearInterval(sprayInterval);
+        confirmModal.classList.remove('hidden');
+      });
+    }
+
+    if (cancelClearBtn && confirmModal) {
+      cancelClearBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        confirmModal.classList.add('hidden');
+      });
+    }
+
+    if (confirmClearBtn && confirmModal) {
+      confirmClearBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        confirmModal.classList.add('hidden');
+        if (!paintCtx) return;
+        state.bgColor = '#ffffff';
+        updateContainerBackground();
+        paintCtx.clearRect(0, 0, cssWidth, cssHeight);
+        if (previewCtx) previewCtx.clearRect(0, 0, cssWidth, cssHeight);
+        saveHistoryState();
+        showToast('restarted', '✓');
+      });
+    }
+
+    if (undoBtn) undoBtn.addEventListener('click', (e) => { e.stopPropagation(); undo(); });
+    if (redoBtn) redoBtn.addEventListener('click', (e) => { e.stopPropagation(); redo(); });
+
+    // Keyboard bindings for undo, redo, and quick tool selection
+    window.addEventListener('keydown', (e) => {
+      if (e.target.tagName === 'INPUT' || e.target.isContentEditable) return;
+      const isCmdOrCtrl = e.metaKey || e.ctrlKey;
+      const key = e.key.toLowerCase();
+
+      // Undo: Cmd+Z, Ctrl+Z, or Backspace
+      if ((isCmdOrCtrl && key === 'z' && !e.shiftKey) || e.key === 'Backspace') {
+        e.preventDefault();
+        undo();
+      } 
+      // Redo: Cmd+Y, Ctrl+Y, or Shift+Cmd+Z, Shift+Ctrl+Z
+      else if ((isCmdOrCtrl && key === 'y') || (isCmdOrCtrl && e.shiftKey && key === 'z')) {
+        e.preventDefault();
+        redo();
+      } 
+      // Tool selection shortcuts
+      else if (!isCmdOrCtrl && key === 'b') {
+        setTool('brush');
+      } else if (!isCmdOrCtrl && key === 's') {
+        setTool('spray');
+      } else if (!isCmdOrCtrl && key === 'c') {
+        setTool('cutout');
+      }
+    });
+
+    let toastTimeout = null;
+    function showToast(message, icon = '✦') {
+      const toast = document.getElementById('toast');
+      const toastMsg = document.getElementById('toastMessage');
+      const toastIcon = document.getElementById('toastIcon');
+      if (!toast || !toastMsg || !toastIcon) return;
+
+      toastMsg.textContent = message.toLowerCase();
+      toastIcon.textContent = icon;
+
+      toast.classList.remove('hidden', 'toast-animate');
+      void toast.offsetWidth;
+      toast.classList.add('toast-animate');
+
+      if (toastTimeout) clearTimeout(toastTimeout);
+      toastTimeout = setTimeout(() => {
+        toast.classList.add('hidden');
+      }, 2200);
+    }
+
+    window.addEventListener('resize', resizeCanvas);
+    window.addEventListener('DOMContentLoaded', () => {
+      resizeCanvas();
+      initInitialHistoryState();
+    });
+    setTimeout(() => {
+      resizeCanvas();
+      initInitialHistoryState();
+    }, 50);
+  </script>
+</body>
+</html>
